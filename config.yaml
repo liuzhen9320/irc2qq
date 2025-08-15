@@ -1,0 +1,47 @@
+# IRC2QQ 消息桥接服务配置文件
+
+# QQ 配置 (Onebot V11)
+qq:
+  websocket_url: "ws://127.0.0.1:5700"  # Onebot V11 WebSocket 地址
+  bot_qq: "123456789"                   # 机器人 QQ 号
+
+# IRC 配置
+irc:
+  server: "irc.libera.chat"            # IRC 服务器地址
+  port: 6667                           # IRC 服务器端口 (6667 不加密, 6697 TLS)
+  nick: "qqbridge"                     # IRC 昵称
+  user: "qqbridge"                     # IRC 用户名
+  realname: "QQ-IRC Bridge Bot"        # IRC 真实姓名
+  password: ""                         # IRC 密码 (可选)
+  use_tls: false                       # 是否使用 TLS 连接
+  skip_tls_verify: true                # 跳过证书验证
+
+# 桥接配置
+bridges:
+  # QQ 群聊 <-> IRC 频道双向同步
+  - qq_group: "114514191"              # QQ 群号
+    irc_channel: "#general"            # IRC 频道名 (需要包含 #)
+    direction: "both"                  # 转发方向: both(双向), qq_to_irc(QQ到IRC), irc_to_qq(IRC到QQ)
+  
+  # QQ 私聊 <-> IRC 频道双向同步
+  - qq_user: "987654321"               # QQ 用户号
+    irc_channel: "#private"            # IRC 频道名
+    direction: "both"
+  
+  # QQ 群聊 -> IRC 频道单向同步 (只转发 QQ 消息到 IRC)
+  - qq_group: "191810114"
+    irc_channel: "#readonly"
+    direction: "qq_to_irc"
+  
+  # IRC 频道 -> QQ 群聊单向同步 (只转发 IRC 消息到 QQ)
+  - qq_group: "810114514"
+    irc_channel: "#writeonly"
+    direction: "irc_to_qq"
+  
+  # QQ 私聊 <-> IRC 私聊双向同步
+  - qq_user: "192168001"               # QQ 用户号
+    irc_user: "username"               # IRC 用户名 (不包含 #)
+    direction: "both"
+
+# 调试模式 (启用后会显示详细日志和调用来源)
+debug: false
