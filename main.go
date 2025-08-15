@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -30,13 +31,14 @@ type Config struct {
 		BotQQ        string `yaml:"bot_qq"`
 	} `yaml:"qq"`
 	IRC struct {
-		Server   string `yaml:"server"`
-		Port     int    `yaml:"port"`
-		Nick     string `yaml:"nick"`
-		User     string `yaml:"user"`
-		RealName string `yaml:"realname"`
-		Password string `yaml:"password,omitempty"`
-		UseTLS   bool   `yaml:"use_tls"`
+		Server            string `yaml:"server"`
+		Port              int    `yaml:"port"`
+		Nick              string `yaml:"nick"`
+		User              string `yaml:"user"`
+		RealName          string `yaml:"realname"`
+		Password          string `yaml:"password,omitempty"`
+		UseTLS            bool   `yaml:"use_tls"`
+		SkipTLSVerify     bool   `yaml:"skip_tls_verify"`
 	} `yaml:"irc"`
 	Bridges []Bridge `yaml:"bridges"`
 	Debug   bool     `yaml:"debug"`
@@ -106,6 +108,50 @@ const (
 	MaxQQMessageLength  = 4500
 	MaxCacheSize       = 50
 )
+
+func main() {
+	// Load configuration
+	config, err := loadConfig("config.yaml")
+	if err != nil {
+		log.Fatal("Failed to load config", "error", err)
+	}
+
+	// Setup logger
+	logger := log.New(os.Stdout)
+	logger.SetTimeFormat(time.RFC3339)
+	if config.Debug {
+		logger.SetLevel(log.DebugLevel)
+		logger.SetReportCaller(true)
+	} else {
+		logger.SetLevel(log.InfoLevel)
+	}
+
+	// Create bridge instance
+	ctx, cancel := context.WithCancel(context.Background())
+	bridge := &MessageBridge{
+		config:         config,
+		logger:         logger,
+		sensitiveWords: loadSensitiveWords(),
+		messageCache:   make(map[string]struct{}),
+		cacheSize:      0,
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start bridge
+	if err := bridge.Start(); err != nil {
+		logger.Fatal("Failed to start bridge", "error", err)
+	}
+
+	// Wait for shutdown signal
+	<-sigChan
+	logger.Info("Shutdown signal received, gracefully closing connections...")
+	bridge.Stop()
+}
 
 func loadConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
@@ -215,7 +261,12 @@ func (mb *MessageBridge) dialIRC() error {
 	
 	var err error
 	if mb.config.IRC.UseTLS {
-		err = mb.ircClient.DialTLS(server, nil)
+		tlsConfig := &tls.Config{}
+		if mb.config.IRC.SkipTLSVerify {
+			tlsConfig.InsecureSkipVerify = true
+			mb.logger.Warn("TLS certificate verification disabled for IRC connection")
+		}
+		err = mb.ircClient.DialTLS(server, tlsConfig)
 	} else {
 		err = mb.ircClient.Dial(server)
 	}
@@ -568,48 +619,4 @@ func parseInt64(s string) int64 {
 	var result int64
 	fmt.Sscanf(s, "%d", &result)
 	return result
-}
-
-func main() {
-	// Load configuration
-	config, err := loadConfig("config.yaml")
-	if err != nil {
-		log.Fatal("Failed to load config", "error", err)
-	}
-
-	// Setup logger
-	logger := log.New(os.Stdout)
-	logger.SetTimeFormat(time.RFC3339)
-	if config.Debug {
-		logger.SetLevel(log.DebugLevel)
-		logger.SetReportCaller(true)
-	} else {
-		logger.SetLevel(log.InfoLevel)
-	}
-
-	// Create bridge instance
-	ctx, cancel := context.WithCancel(context.Background())
-	bridge := &MessageBridge{
-		config:         config,
-		logger:         logger,
-		sensitiveWords: loadSensitiveWords(),
-		messageCache:   make(map[string]struct{}),
-		cacheSize:      0,
-		ctx:            ctx,
-		cancel:         cancel,
-	}
-
-	// Setup signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start bridge
-	if err := bridge.Start(); err != nil {
-		logger.Fatal("Failed to start bridge", "error", err)
-	}
-
-	// Wait for shutdown signal
-	<-sigChan
-	logger.Info("Shutdown signal received, gracefully closing connections...")
-	bridge.Stop()
 }
